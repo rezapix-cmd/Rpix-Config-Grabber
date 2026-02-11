@@ -4,84 +4,92 @@ import json
 import socket
 import time
 import os
+import ssl
+import random
+import re
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from concurrent.futures import ThreadPoolExecutor
 
+# منابع دریافت کانفیگ
 SOURCES = [
-    "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/All_Configs_Sub.txt",
-    "https://raw.githubusercontent.com/mahdicold/V2Ray-Config-Sub/main/v2ray-config.txt",
-    "https://raw.githubusercontent.com/vfarid/v2ray-share/main/all.txt",
-    "https://raw.githubusercontent.com/w1770946466/Auto_Proxy/main/Long_term_subscription_num"
+    "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/protocols/vless",
+    "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/protocols/trojan",
+    "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vless",
 ]
 
-def get_country(host):
-    try:
-        ip = socket.gethostbyname(host)
-        res = requests.get(f"http://ip-api.com/json/{ip}?fields=countryCode", timeout=3).json()
-        return res.get('countryCode', 'UN')
-    except:
-        return "UN"
+FALLBACK_CLEAN_IPS = ["104.16.132.229", "172.64.150.10", "www.visa.com"]
+global_clean_ips = []
 
-def check_connection(host, port):
-    try:
-        start_time = time.time()
-        sock = socket.create_connection((host, port), timeout=2)
-        latency = int((time.time() - start_time) * 1000)
-        sock.close()
-        return latency
-    except:
-        return None
+def get_fresh_ips():
+    ip_urls = ["https://raw.githubusercontent.com/vfarid/cf-ip-scanner/main/ipv4.txt"]
+    collected = set()
+    for url in ip_urls:
+        try:
+            resp = requests.get(url, timeout=10).text
+            ips = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', resp)
+            collected.update(ips)
+        except: continue
+    return list(collected) if collected else FALLBACK_CLEAN_IPS
 
-def extract_info(config):
+def check_tls_connection(host, port):
     try:
-        if config.startswith("vmess://"):
-            data = json.loads(base64.b64decode(config[8:]).decode('utf-8'))
-            return data.get('add'), int(data.get('port'))
-        elif "@" in config:
-            parts = config.split("@")[1].split("?")[0].split("#")[0]
-            if ":" in parts:
-                host, port = parts.split(":")
-                return host, int(port)
-    except:
-        pass
-    return None, None
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        with socket.create_connection((host, port), timeout=3) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as ssock:
+                return True
+    except: return False
+
+def optimize_link(conf):
+    try:
+        parsed = urlparse(conf)
+        if parsed.scheme not in ["vless", "trojan"]: return None
+        if "@" not in parsed.netloc: return None
+        
+        user_info, host_port = parsed.netloc.split("@")
+        original_host, port = host_port.split(":") if ":" in host_port else (None, None)
+        if not original_host: return None
+
+        clean_ip = random.choice(global_clean_ips)
+        params = parse_qs(parsed.query)
+        
+        params['sni'] = [original_host]
+        params['host'] = [original_host]
+        params['fp'] = ['chrome']
+        params['alpn'] = ['h2,http/1.1']
+        
+        if params.get('type', [''])[0] == 'ws' and parsed.path and parsed.path != "/":
+            params['path'] = [parsed.path]
+
+        new_netloc = f"{user_info}@{clean_ip}:{port}"
+        return urlunparse((parsed.scheme, new_netloc, "/", "", urlencode(params, doseq=True), parsed.fragment)), original_host, int(port)
+    except: return None
 
 def process_config(conf):
-    if not conf.startswith(("vless", "vmess", "trojan", "ss")):
-        return None
-    host, port = extract_info(conf)
-    if host and port:
-        latency = check_connection(host, port)
-        if latency:
-            country = get_country(host)
-            return {"conf": conf, "country": country, "latency": latency}
+    data = optimize_link(conf)
+    if data and check_tls_connection(data[1], data[2]): return data[0]
     return None
 
 def main():
+    global global_clean_ips
+    global_clean_ips = get_fresh_ips()
     raw_configs = set()
-    headers = {"User-Agent": "Mozilla/5.0 (Rpix-Bot)"}
     for url in SOURCES:
         try:
-            res = requests.get(url, headers=headers, timeout=15)
-            content = res.text
-            if "://" not in content[:50]:
-                try: content = base64.b64decode(content).decode('utf-8', 'ignore')
-                except: pass
-            raw_configs.update(content.splitlines())
+            res = requests.get(url, timeout=10).text
+            if "://" not in res[:50]: res = base64.b64decode(res).decode('utf-8', 'ignore')
+            for line in res.splitlines():
+                if line.startswith(("vless://", "trojan://")): raw_configs.add(line)
         except: continue
 
-    with ThreadPoolExecutor(max_workers=30) as executor:
+    with ThreadPoolExecutor(max_workers=50) as executor:
         results = list(executor.map(process_config, list(raw_configs)))
     
-    valid_results = sorted([r for r in results if r], key=lambda x: x['latency'])
-    final_configs = []
-    for i, item in enumerate(valid_results[:100]):
-        clean_conf = item['conf'].split("#")[0]
-        final_configs.append(f"{clean_conf}#Pix.{item['country']}.{i+1}")
-
+    final = [f"{c.split('#')[0]}#Rpix_Clean_{i}" for i, c in filter(None, enumerate(results))][:100]
     os.makedirs("export", exist_ok=True)
-    with open("export/sub.txt", "w") as f: f.write("\n".join(final_configs))
-    with open("export/sub_ios.txt", "w") as f:
-        f.write(base64.b64encode("\n".join(final_configs).encode()).decode())
+    with open("export/sub.txt", "w", encoding="utf-8") as f: f.write("\n".join(final))
+    with open("export/sub_b64.txt", "w", encoding="utf-8") as f:
+        f.write(base64.b64encode("\n".join(final).encode()).decode())
 
-if __name__ == "__main__":
-    main()
+if __name
