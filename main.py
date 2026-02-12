@@ -3,8 +3,8 @@ from urllib.parse import urlparse, parse_qs, urlencode, unquote
 from concurrent.futures import ThreadPoolExecutor
 
 # --- تنظیمات هوشمند ---
-TARGET_COUNT = 50       # تعداد مد نظر شما
-CLEAN_INTERVAL = 12 * 3600  # ۱۲ ساعت به ثانیه
+TARGET_COUNT = 50       # هدفی که گفتی (۵۰ کانفیگ)
+CLEAN_INTERVAL = 12 * 3600  # پاکسازی کل لیست هر ۱۲ ساعت
 EXPORT_DIR = "export"
 SUB_FILE = f"{EXPORT_DIR}/sub.txt"
 LOG_FILE = f"{EXPORT_DIR}/last_clean.txt"
@@ -13,11 +13,11 @@ SOURCES = [
     "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/protocols/vless",
     "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/protocols/trojan",
     "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vless",
-    "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/Eternity"
+    "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/Eternity",
+    "https://raw.githubusercontent.com/Lonewolf-sh/V2ray-Configs/main/All_Configs_Sub.txt"
 ]
 
 FALLBACK_CLEAN_IPS = ["104.16.132.229", "172.64.150.10", "104.17.147.222"]
-global_clean_ips = []
 
 def get_fresh_ips():
     try:
@@ -50,12 +50,12 @@ def process_config(conf):
         security, net_type, sni = params.get('security', ''), params.get('type', 'tcp'), params.get('sni', original_address)
         
         if security == 'reality' or (net_type == 'tcp' and security != 'tls'):
-            if check_connection(original_address, port, sni): return conf + "#Direct_Tested"
+            if check_connection(original_address, port, sni): return conf + f"#Rpix_Direct"
         elif net_type in ['ws', 'grpc'] or security == 'tls':
             clean_ip = random.choice(global_clean_ips)
             params.update({'sni': original_address, 'host': original_address, 'fp': 'chrome'})
             if check_connection(clean_ip, port, original_address):
-                return f"{parsed.scheme}://{user_info}@{clean_ip}:{port}?{urlencode(params)}#{original_address}_Clean"
+                return f"{parsed.scheme}://{user_info}@{clean_ip}:{port}?{urlencode(params)}#Rpix_Clean"
     except: pass
     return None
 
@@ -63,7 +63,7 @@ def main():
     global global_clean_ips
     os.makedirs(EXPORT_DIR, exist_ok=True)
     
-    # --- مدیریت حافظه و پاکسازی ۱۲ ساعته ---
+    # --- مدیریت زمان (هر ۱۲ ساعت لیست را صفر کن) ---
     current_time = time.time()
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE, "r") as f:
@@ -73,6 +73,7 @@ def main():
     else:
         with open(LOG_FILE, "w") as fw: fw.write(str(current_time))
 
+    # خواندن کانفیگ‌های قبلی (برای رسیدن به هدف ۵۰ تا)
     prev_configs = []
     if os.path.exists(SUB_FILE):
         with open(SUB_FILE, "r", encoding="utf-8") as f: prev_configs = f.read().splitlines()
@@ -90,13 +91,23 @@ def main():
     with ThreadPoolExecutor(max_workers=50) as executor:
         new_results = list(filter(None, executor.map(process_config, list(raw_configs))))
 
+    # --- بخش نهایی ذخیره‌سازی که فرستادی ---
     final_list = list(set(prev_configs + new_results))
-    with open(SUB_FILE, "w", encoding="utf-8") as f: f.write("\n".join(final_list[:100]))
-    with open(f"{EXPORT_DIR}/sub_b64.txt", "w", encoding="utf-8") as f:
-        f.write(base64.b64encode("\n".join(final_list[:100]).encode()).decode())
+    final_configs_str = "\n".join(final_list[:100]).strip()
+    
+    with open(SUB_FILE, "w", encoding="utf-8") as f:
+        f.write(final_configs_str)
+    
+    encoded_data = base64.b64encode(final_configs_str.encode('utf-8')).decode('utf-8') if final_configs_str else ""
 
-    # ذخیره تعداد برای استفاده در Workflow
-    with open("count.txt", "w") as f: f.write(str(len(final_list)))
+    with open(f"{EXPORT_DIR}/sub_b64.txt", "w", encoding="utf-8") as f:
+        f.write(encoded_data)
+
+    with open(f"{EXPORT_DIR}/sub_ios.txt", "w", encoding="utf-8") as f:
+        f.write(encoded_data)
+
+    with open("count.txt", "w") as f:
+        f.write(str(len(final_list)))
 
 if __name__ == "__main__":
     main()
