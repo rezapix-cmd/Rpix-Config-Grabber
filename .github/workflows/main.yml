@@ -1,53 +1,38 @@
 name: Rpix Auto Update
-
 on:
   schedule:
-    - cron: '0 * * * *' # اجرای خودکار هر یک ساعت
-  workflow_dispatch: # امکان اجرای دستی توسط خودت
-  repository_dispatch:
-    types: [retry_run]
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.x'
-
-      - name: Install requirements
-        run: pip install requests
-
-      - name: Run Script
-        run: python main.py
-
+      - run: pip install requests
+      - run: python main.py
       - name: Commit and Push
         run: |
           git config --global user.name "actions-user"
           git config --global user.email "actions@github.com"
-          # تنظیم آدرس بدون هیچ نقطه یا کاراکتر اضافی
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git add .
-          git commit -m "Update configs: $(date)" || echo "No changes to commit"
-          git push origin main
-
-      - name: Check Count and Trigger Retry
+          git commit -m "Update: $(date)" || echo "No changes"
+          git push
+      - name: Retry if under 50
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # خواندن تعداد کانفیگ‌ها از فایل تولید شده توسط اسکریپت پایتون
           COUNT=$(cat count.txt || echo 0)
           if [ "$COUNT" -lt 50 ]; then
-            echo "تعداد کانفیگ‌ها ($COUNT) زیر ۵۰ است. ۵ دقیقه دیگر دوباره تلاش می‌کنم..."
+            echo "Count is $COUNT, retrying in 5 minutes..."
             sleep 300
-            curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/${{ github.repository }}/actions/workflows/main.yml/dispatches \
-              -d '{"ref":"main"}'
+            gh workflow run "Rpix Auto Update" --ref main
           else
-            echo "هدف محقق شد! $COUNT کانفیگ باکیفیت پیدا شد."
+            echo "Goal reached: $COUNT configs found."
           fi
