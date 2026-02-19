@@ -1,48 +1,23 @@
-name: Rpix Auto Update
+name: IRPX Config Grabber Automation
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 * * * *' # شروع مجدد کل فرآیند هر یک ساعت
-
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
 permissions:
   contents: write
-
 jobs:
-  build:
+  update-configs:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
-
-      - name: Install Requirements
-        run: pip install requests
-
-      - name: Run Script
-        run: python main.py
-
+          python-version: '3.10'
+      - run: pip install requests
+      - run: python main.py
       - name: Commit and Push
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # هدف قرار دادن تمام فایل‌های داخل اکسپورت برای حل مشکل آپدیت نشدن
-          git add export/sub.txt export/sub_ios.txt export/sub_b64.txt count.txt
-          git commit -m "Update All Configs: $(date)" || echo "No changes"
-          git push origin main
-
-      - name: Check and Retry
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          COUNT=$(cat count.txt)
-          if [ "$COUNT" -lt 50 ]; then
-            echo "تعداد $COUNT کمتر از حد نصاب ۵۰ است. ۵ دقیقه دیگر دوباره تلاش می‌کنم..."
-            sleep 300
-            gh workflow run main.yml
-          else
-            echo "هدف ۵۰ تایی محقق شد. عملیات با موفقیت پایان یافت."
-          fi
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@users.noreply.github.com"
+          git add export/ count.txt
+          git diff --staged --quiet || (git commit -m "🚀 Auto-update" && git push)
