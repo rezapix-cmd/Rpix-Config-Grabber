@@ -4,7 +4,7 @@ on:
     - cron: '0 */3 * * *'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: write # 👈 کلیدِ اصلی اینجاست!
 jobs:
   update-configs:
     runs-on: ubuntu-latest
