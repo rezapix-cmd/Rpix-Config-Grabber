@@ -2,8 +2,8 @@ name: IRPX Config Grabber Automation
 
 on:
   schedule:
-    - cron: '0 * * * *' # هر یک ساعت اجرا می‌شود
-  workflow_dispatch: # امکان اجرای دستی
+    - cron: '0 * * * *' # اجرای خودکار هر یک ساعت
+  workflow_dispatch: # امکان اجرای دستی برای تست
 
 permissions:
   contents: write
@@ -12,16 +12,30 @@ jobs:
   update-configs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - run: pip install requests
-      - run: python main.py
-      - name: Commit and Push
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Clean Old Files
+        run: |
+          mkdir -p export
+          rm -f export/*.txt
+          
+      - name: Run Config Grabber
+        run: python main.py
+
+      - name: Commit and Push Changes
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@users.noreply.github.com"
-          git add export/* count.txt
-          git commit -m "🚀 Auto-update: $(date)" || echo "No changes"
+          git add export/*.txt count.txt
+          # اگر تغییری بود کامیت کن، در غیر این صورت ادامه بده
+          git diff --quiet && git diff --staged --quiet || git commit -m "🚀 Auto-update configs: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           git push
