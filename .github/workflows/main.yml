@@ -3,10 +3,10 @@ name: IRPX Config Grabber Automation
 on:
   schedule:
     - cron: '0 * * * *' # اجرا در دقیقه 0 هر ساعت
-  workflow_dispatch: # امکان اجرای دستی از تب Actions
+  workflow_dispatch: # امکان اجرای دستی
 
 permissions:
-  contents: write # اجازه ثبت تغییرات در مخزن
+  contents: write
 
 jobs:
   update-configs:
@@ -36,6 +36,5 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@users.noreply.github.com"
           git add export/*.txt count.txt
-          # چک کردن برای تغییرات قبل از کامیت
           git diff --quiet && git diff --staged --quiet || git commit -m "🚀 Auto-update configs: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           git push
